@@ -13,6 +13,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<InMemoryStore>();
 builder.Services.AddSingleton<PresignedUrlService>();
 builder.Services.AddSingleton<VectorStoreService>();
+builder.Services.AddHttpClient<OpenAiResponseService>();
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
@@ -370,6 +371,7 @@ app.MapGet("/chatbots/{chatbotId:long}/sessions/{sessionId}/stream", (
     long chatbotId,
     string sessionId,
     InMemoryStore store,
+    OpenAiResponseService responseService,
     CancellationToken cancellationToken) =>
 {
     if (!store.TryGetChatbot(chatbotId, out var chatbot))
@@ -382,35 +384,48 @@ app.MapGet("/chatbots/{chatbotId:long}/sessions/{sessionId}/stream", (
         return Results.NotFound(new { message = "Session not found for chatbot" });
     }
 
-    var serializedMeta = JsonSerializer.Serialize(chatbot.Meta);
+    if (!responseService.IsConfigured)
+    {
+        return Results.Problem("OpenAI API key is not configured for streaming responses.");
+    }
+
+    var chatbotFiles = store.GetChatbotFiles(chatbotId).ToList();
 
     return Results.Stream(async (stream, ct) =>
     {
         await using var writer = new StreamWriter(stream) { AutoFlush = true };
-        await writer.WriteLineAsync("event: meta");
-        await writer.WriteLineAsync($"data: {serializedMeta}");
-        await writer.WriteLineAsync();
 
-        var tokens = new[]
+        try
         {
-            $"Starting streamed response for session '{session.SessionId}'.",
-            "Generating content...",
-            "Streaming complete."
-        };
+            await foreach (var evt in responseService.StreamResponseAsync(chatbot, session, chatbotFiles, ct))
+            {
+                if (!string.IsNullOrWhiteSpace(evt.EventName))
+                {
+                    await writer.WriteLineAsync($"event: {evt.EventName}");
+                }
 
-        foreach (var token in tokens)
-        {
-            ct.ThrowIfCancellationRequested();
-            await writer.WriteLineAsync($"data: {token}");
+                await writer.WriteLineAsync($"data: {evt.Data}");
+                await writer.WriteLineAsync();
+                await writer.FlushAsync();
+
+                if (evt.IsDone)
+                {
+                    break;
+                }
+            }
+
+            await writer.WriteLineAsync("event: done");
+            await writer.WriteLineAsync("data: [DONE]");
             await writer.WriteLineAsync();
             await writer.FlushAsync();
-            await Task.Delay(TimeSpan.FromMilliseconds(350), ct);
         }
-
-        await writer.WriteLineAsync("event: done");
-        await writer.WriteLineAsync("data: [DONE]");
-        await writer.WriteLineAsync();
-        await writer.FlushAsync();
+        catch (Exception ex)
+        {
+            await writer.WriteLineAsync("event: error");
+            await writer.WriteLineAsync($"data: {ex.Message}");
+            await writer.WriteLineAsync();
+            await writer.FlushAsync();
+        }
     }, "text/event-stream");
 });
 
