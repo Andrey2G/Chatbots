@@ -3,10 +3,12 @@ CREATE TABLE cb_chatbots (
     name VARCHAR(255) NOT NULL,
     description TEXT NULL,
     meta JSON NOT NULL,
+    vector_store_id VARCHAR(255) NULL,
     initial_response_id VARCHAR(100) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id)
+    PRIMARY KEY (id),
+    KEY idx_chatbots_vector_store_id (vector_store_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE cb_sessions (
@@ -51,18 +53,39 @@ CREATE TABLE cb_messages (
 
 CREATE TABLE cb_files (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    message_id BIGINT UNSIGNED NOT NULL,
     s3_key VARCHAR(1024) NOT NULL,
     file_name VARCHAR(255) NOT NULL,
     mime_type VARCHAR(255) NULL,
     file_size BIGINT UNSIGNED NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_files_message_id (message_id),
-    KEY idx_files_s3_key (s3_key),
-    CONSTRAINT fk_files_message
+    KEY idx_files_s3_key (s3_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE cb_chatbot_files (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    chatbot_id BIGINT UNSIGNED NOT NULL,
+    message_id BIGINT UNSIGNED NULL,
+    file_id BIGINT UNSIGNED NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_chatbot_files_chatbot_file (chatbot_id, file_id),
+    KEY idx_chatbot_files_chatbot_id (chatbot_id),
+    KEY idx_chatbot_files_message_id (message_id),
+    KEY idx_chatbot_files_file_id (file_id),
+    CONSTRAINT fk_chatbot_files_chatbot
+        FOREIGN KEY (chatbot_id)
+        REFERENCES cb_chatbots (id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT fk_chatbot_files_message
         FOREIGN KEY (message_id)
         REFERENCES cb_messages (id)
+        ON DELETE SET NULL
+        ON UPDATE CASCADE,
+    CONSTRAINT fk_chatbot_files_file
+        FOREIGN KEY (file_id)
+        REFERENCES cb_files (id)
         ON DELETE CASCADE
         ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
