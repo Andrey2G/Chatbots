@@ -1,0 +1,113 @@
+@page "/chatbots/{ChatbotId:long}/sessions"
+@inject ApiClient Api
+@inject NavigationManager Nav
+
+<h1>Sessions</h1>
+<p class="text-muted">Create and open conversations for this chatbot.</p>
+
+<div class="card">
+    <div class="actions">
+        <button @onclick="@(() => Nav.NavigateTo($"/chatbots/{ChatbotId}/files"))">Files</button>
+        <button @onclick="@(() => Nav.NavigateTo($"/chatbots/{ChatbotId}/edit"))">Edit Chatbot</button>
+        <button @onclick="@(() => Nav.NavigateTo("/"))">Back</button>
+    </div>
+</div>
+
+<div class="card">
+    <h3>New conversation</h3>
+    <EditForm Model="_createRequest" OnValidSubmit="CreateAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+        <div class="grid">
+            <div>
+                <label>Session Id</label>
+                <InputText @bind-Value="_createRequest.SessionId" />
+            </div>
+            <div>
+                <label>User Identity</label>
+                <InputText @bind-Value="_createRequest.UserIdentity" />
+            </div>
+        </div>
+        <div>
+            <label>Title</label>
+            <InputText @bind-Value="_createRequest.Title" />
+        </div>
+        <div class="actions">
+            <button type="submit">Create</button>
+        </div>
+    </EditForm>
+</div>
+
+<div class="card">
+    <h3>Existing sessions</h3>
+    @if (_sessions.Count == 0)
+    {
+        <p>No sessions found.</p>
+    }
+    else
+    {
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Session Id</th>
+                    <th>Messages</th>
+                    <th>Created</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var session in _sessions)
+                {
+                    <tr>
+                        <td>@(string.IsNullOrWhiteSpace(session.Title) ? "Untitled" : session.Title)</td>
+                        <td><code>@session.SessionId</code></td>
+                        <td><span class="badge">@session.MessageCount</span></td>
+                        <td>@session.CreatedAt.LocalDateTime.ToString("g")</td>
+                        <td class="actions">
+                            <button @onclick="@(() => Nav.NavigateTo($"/chatbots/{ChatbotId}/sessions/{session.SessionId}"))">Open</button>
+                            <button @onclick="@(() => DeleteAsync(session.SessionId))">Delete</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public long ChatbotId { get; set; }
+
+    private readonly List<SessionDto> _sessions = new();
+    private readonly SessionCreateRequest _createRequest = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _sessions.Clear();
+        _sessions.AddRange(await Api.GetSessionsAsync(ChatbotId));
+    }
+
+    private async Task CreateAsync()
+    {
+        var created = await Api.CreateSessionAsync(ChatbotId, _createRequest);
+        if (created is not null)
+        {
+            _createRequest.SessionId = string.Empty;
+            _createRequest.UserIdentity = null;
+            _createRequest.Title = null;
+            await LoadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(string sessionId)
+    {
+        await Api.DeleteSessionAsync(ChatbotId, sessionId);
+        await LoadAsync();
+    }
+}
