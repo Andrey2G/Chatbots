@@ -30,6 +30,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 app.MapGet("/chatbots", (InMemoryStore store) =>
 {
@@ -45,6 +47,55 @@ app.MapGet("/chatbots/{chatbotId:long}", (long chatbotId, InMemoryStore store) =
     }
 
     return Results.Ok(ToResponse(chatbot));
+});
+
+app.MapGet("/chatbots/{chatbotId:long}/sessions", (long chatbotId, InMemoryStore store) =>
+{
+    if (!store.TryGetChatbot(chatbotId, out _))
+    {
+        return Results.NotFound(new { message = "Chatbot not found" });
+    }
+
+    var sessions = store.GetSessionsForChatbot(chatbotId)
+        .OrderByDescending(s => s.CreatedAt)
+        .Select(ToSessionResponse);
+
+    return Results.Ok(sessions);
+});
+
+app.MapGet("/chatbots/{chatbotId:long}/sessions/{sessionId}", (long chatbotId, string sessionId, InMemoryStore store) =>
+{
+    if (!store.TryGetChatbot(chatbotId, out _))
+    {
+        return Results.NotFound(new { message = "Chatbot not found" });
+    }
+
+    if (!store.TryGetSessionByIdentifier(sessionId, out var session) || session.ChatbotId != chatbotId)
+    {
+        return Results.NotFound(new { message = "Session not found for chatbot" });
+    }
+
+    return Results.Ok(ToSessionResponse(session));
+});
+
+app.MapGet("/chatbots/{chatbotId:long}/sessions/{sessionId}/messages", (long chatbotId, string sessionId, InMemoryStore store) =>
+{
+    if (!store.TryGetChatbot(chatbotId, out _))
+    {
+        return Results.NotFound(new { message = "Chatbot not found" });
+    }
+
+    if (!store.TryGetSessionByIdentifier(sessionId, out var session) || session.ChatbotId != chatbotId)
+    {
+        return Results.NotFound(new { message = "Session not found for chatbot" });
+    }
+
+    var messages = session.Messages
+        .OrderBy(m => m.CreatedAt)
+        .Select(ToMessageResponse)
+        .ToList();
+
+    return Results.Ok(messages);
 });
 
 app.MapPost("/chatbots", (ChatbotCreateRequest request, InMemoryStore store) =>
@@ -445,3 +496,27 @@ static FileAttachmentResponse ToAttachmentResponse(FileAttachment file) =>
 
 static ChatbotFileResponse ToChatbotFileResponse(ChatbotFile file) =>
     new(file.Id, file.ChatbotId, file.S3Key, file.FileName, file.MimeType, file.FileSize, file.CreatedAt, file.IndexedAt);
+
+static SessionResponse ToSessionResponse(Session session) =>
+    new(
+        session.Id,
+        session.ChatbotId,
+        session.SessionId,
+        session.UserIdentity,
+        session.Title,
+        session.CreatedAt,
+        session.Messages.Count);
+
+static MessageResponse ToMessageResponse(Message message) =>
+    new(
+        message.Id,
+        message.SessionId,
+        message.SenderType,
+        message.Content,
+        message.ResponseId,
+        message.ParentResponseId,
+        message.Metadata,
+        message.Usage,
+        message.CreatedAt,
+        message.UpdatedAt,
+        message.Files.Select(ToAttachmentResponse).ToList());

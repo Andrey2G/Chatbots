@@ -1,0 +1,199 @@
+@page "/chatbots/{ChatbotId:long}/sessions/{SessionId}"
+@inject ApiClient Api
+@inject StreamingClient Streamer
+@implements IAsyncDisposable
+
+<h1>Playground</h1>
+<p class="text-muted">Send messages, upload files, and watch streaming responses.</p>
+
+<div class="card">
+    <div class="flex-between">
+        <div>
+            <p><strong>Chatbot:</strong> @ChatbotId</p>
+            <p><strong>Session:</strong> <code>@SessionId</code></p>
+        </div>
+        <div class="actions">
+            <button @onclick="@(() => Navigation.NavigateTo($"/chatbots/{ChatbotId}/sessions"))">Back</button>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Conversation</h3>
+    @if (_messages.Count == 0)
+    {
+        <p>No messages yet.</p>
+    }
+    else
+    {
+        @foreach (var msg in _messages.OrderBy(m => m.CreatedAt))
+        {
+            <div class="message">
+                <div class="meta">
+                    <span class="badge">@msg.SenderType</span>
+                    <span>@msg.CreatedAt.LocalDateTime.ToString("g")</span>
+                </div>
+                <div class="content">@msg.Content</div>
+                @if (msg.Files.Count > 0)
+                {
+                    <div class="actions">
+                        @foreach (var file in msg.Files)
+                        {
+                            <button @onclick="@(() => DownloadAsync(file.Id))">Download @file.FileName</button>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_streamBuffer))
+    {
+        <div class="message">
+            <div class="meta"><span class="badge">assistant</span><span>streaming...</span></div>
+            <div class="content">@_streamBuffer</div>
+        </div>
+    }
+</div>
+
+<div class="card">
+    <h3>Send message</h3>
+    <EditForm Model="_message" OnValidSubmit="SendAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+        <div>
+            <label>Content</label>
+            <InputTextArea @bind-Value="_message.Content" rows="4" />
+        </div>
+        <div class="grid">
+            <div>
+                <label>Response Id</label>
+                <InputText @bind-Value="_message.ResponseId" />
+            </div>
+            <div>
+                <label>Parent Response Id</label>
+                <InputText @bind-Value="_message.ParentResponseId" />
+            </div>
+        </div>
+        <div>
+            <label>Metadata (JSON)</label>
+            <InputTextArea @bind-Value="_message.Metadata" rows="3" />
+        </div>
+        <div>
+            <label>Usage</label>
+            <InputTextArea @bind-Value="_message.Usage" rows="2" />
+        </div>
+        <div>
+            <InputFile multiple OnChange="HandleAttachment" />
+            @if (_message.Files.Count > 0)
+            {
+                <p>@_message.Files.Count file(s) selected.</p>
+            }
+        </div>
+        <div class="actions">
+            <button type="submit" disabled="@_sending">@(_sending ? "Sending..." : "Send")</button>
+            <button type="button" @onclick="StopStream">Stop Stream</button>
+        </div>
+    </EditForm>
+</div>
+
+@code {
+    [Parameter]
+    public long ChatbotId { get; set; }
+
+    [Parameter]
+    public string SessionId { get; set; } = string.Empty;
+
+    [Inject]
+    public NavigationManager Navigation { get; set; } = default!;
+
+    private readonly List<MessageDto> _messages = new();
+    private readonly SendMessageRequest _message = new();
+    private string? _downloadUrl;
+    private bool _sending;
+    private string _streamKey => $"chatbot-{ChatbotId}-session-{SessionId}";
+    private string? _streamBuffer;
+    private DotNetObjectReference<Playground>? _dotNetRef;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMessagesAsync();
+        await StartStreamAsync();
+    }
+
+    private async Task LoadMessagesAsync()
+    {
+        _messages.Clear();
+        _messages.AddRange(await Api.GetMessagesAsync(ChatbotId, SessionId));
+    }
+
+    private void HandleAttachment(InputFileChangeEventArgs e)
+    {
+        _message.Files = e.GetMultipleFiles().ToList();
+    }
+
+    private async Task SendAsync()
+    {
+        _sending = true;
+        await Api.SendMessageAsync(ChatbotId, SessionId, _message);
+        _message.Content = string.Empty;
+        _message.Files.Clear();
+        _sending = false;
+        await LoadMessagesAsync();
+        await StartStreamAsync();
+    }
+
+    private async Task<string?> DownloadAsync(long fileId)
+    {
+        _downloadUrl = await Api.GetDownloadUrlAsync(fileId);
+        if (!string.IsNullOrWhiteSpace(_downloadUrl))
+        {
+            Navigation.NavigateTo(_downloadUrl, forceLoad: true);
+        }
+
+        return _downloadUrl;
+    }
+
+    private async Task StartStreamAsync()
+    {
+        _streamBuffer = null;
+        _dotNetRef?.Dispose();
+        _dotNetRef = DotNetObjectReference.Create(this);
+        var streamUrl = new Uri(Api.BaseAddress, $"chatbots/{ChatbotId}/sessions/{SessionId}/stream");
+        await Streamer.StartAsync(_streamKey, streamUrl.ToString(), _dotNetRef);
+    }
+
+    private async Task StopStream()
+    {
+        await Streamer.StopAsync(_streamKey);
+        _streamBuffer = null;
+    }
+
+    [JSInvokable]
+    public async Task HandleStreamEvent(string data)
+    {
+        _streamBuffer = string.IsNullOrEmpty(_streamBuffer) ? data : $"{_streamBuffer}{data}";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task HandleStreamComplete()
+    {
+        await LoadMessagesAsync();
+        _streamBuffer = null;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task HandleStreamError(string message)
+    {
+        _streamBuffer = $"Stream error: {message}";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _dotNetRef?.Dispose();
+        await Streamer.StopAsync(_streamKey);
+    }
+}

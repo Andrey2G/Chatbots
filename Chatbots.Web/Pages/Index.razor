@@ -1,0 +1,60 @@
+@page "/"
+@inject ApiClient Api
+@inject NavigationManager Nav
+
+<h1>Chatbots</h1>
+
+<div class="card">
+    <div class="flex-between">
+        <p class="text-muted">Manage chatbots and open sessions.</p>
+        <button @onclick="@(() => Nav.NavigateTo(\"/chatbots/new\"))">New Chatbot</button>
+    </div>
+
+    @if (_loading)
+    {
+        <p>Loading chatbots...</p>
+    }
+    else if (_chatbots.Count == 0)
+    {
+        <p>No chatbots yet.</p>
+    }
+    else
+    {
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th>Updated</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var bot in _chatbots)
+                {
+                    <tr>
+                        <td>@bot.Name</td>
+                        <td>@bot.Description</td>
+                        <td>@bot.UpdatedAt.LocalDateTime.ToString("g")</td>
+                        <td class="actions">
+                            <button @onclick="() => Nav.NavigateTo($"/chatbots/{bot.Id}/edit")">Edit</button>
+                            <button @onclick="() => Nav.NavigateTo($"/chatbots/{bot.Id}/files")">Files</button>
+                            <button @onclick="() => Nav.NavigateTo($"/chatbots/{bot.Id}/sessions")">Sessions</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    private List<ChatbotDto> _chatbots = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _chatbots = await Api.GetChatbotsAsync();
+        _loading = false;
+    }
+}

@@ -1,0 +1,83 @@
+@page "/chatbots/new"
+@page "/chatbots/{ChatbotId:long}/edit"
+@inject ApiClient Api
+@inject NavigationManager Nav
+
+<h1>@Title</h1>
+
+<div class="card">
+    <EditForm Model="_model" OnValidSubmit="SaveAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+        <div class="grid">
+            <div>
+                <label>Name</label>
+                <InputText @bind-Value="_model.Name" />
+            </div>
+            <div>
+                <label>Initial Response Id</label>
+                <InputText @bind-Value="_model.InitialResponseId" />
+            </div>
+        </div>
+        <div class="grid">
+            <div>
+                <label>Description</label>
+                <InputTextArea @bind-Value="_model.Description" rows="3" />
+            </div>
+            <div>
+                <label>Meta (JSON)</label>
+                <InputTextArea @bind-Value="_model.Meta" rows="3" />
+            </div>
+        </div>
+        <div class="actions">
+            <button type="submit" disabled="@_saving">@(_saving ? "Saving..." : "Save")</button>
+            <button type="button" @onclick="@(() => Nav.NavigateTo(\"/\"))">Cancel</button>
+        </div>
+    </EditForm>
+</div>
+
+@code {
+    [Parameter]
+    public long? ChatbotId { get; set; }
+
+    private ChatbotRequest _model = new();
+    private bool _saving;
+    private string Title => ChatbotId == null ? "Create Chatbot" : "Edit Chatbot";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (ChatbotId is not null)
+        {
+            var existing = await Api.GetChatbotAsync(ChatbotId.Value);
+            if (existing is null)
+            {
+                Nav.NavigateTo("/");
+                return;
+            }
+
+            _model = new ChatbotRequest
+            {
+                Name = existing.Name,
+                Description = existing.Description,
+                Meta = existing.Meta,
+                InitialResponseId = existing.InitialResponseId
+            };
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        if (ChatbotId is null)
+        {
+            await Api.CreateChatbotAsync(_model);
+        }
+        else
+        {
+            await Api.UpdateChatbotAsync(ChatbotId.Value, _model);
+        }
+
+        _saving = false;
+        Nav.NavigateTo("/");
+    }
+}
