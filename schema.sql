@@ -3,24 +3,24 @@ CREATE TABLE cb_chatbots (
     name VARCHAR(255) NOT NULL,
     description TEXT NULL,
     meta JSON NOT NULL,
-    initial_response_id BIGINT UNSIGNED NULL,
+    initial_response_id VARCHAR(100) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE cb_conversations (
+CREATE TABLE cb_sessions (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     chatbot_id BIGINT UNSIGNED NOT NULL,
-    conversation_id VARCHAR(50) NOT NULL,
+    conversation_id VARCHAR(100) NOT NULL,
     user_identity VARCHAR(255) NULL,
     title VARCHAR(255) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_conversations_chatbot_id (chatbot_id),
-    KEY idx_conversations_conversation_id (conversation_id),
-    KEY idx_conversations_user_identity (user_identity),
-    CONSTRAINT fk_conversations_chatbot
+    KEY idx_sessions_chatbot_id (chatbot_id),
+    KEY idx_sessions_conversation_id (conversation_id),
+    KEY idx_sessions_user_identity (user_identity),
+    CONSTRAINT fk_sessions_chatbot
         FOREIGN KEY (chatbot_id)
         REFERENCES cb_chatbots (id)
         ON DELETE CASCADE
@@ -29,22 +29,22 @@ CREATE TABLE cb_conversations (
 
 CREATE TABLE cb_messages (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    conversation_id BIGINT UNSIGNED NOT NULL,
-    sender_type ENUM('user', 'assistant', 'system') NOT NULL,
+    session_id BIGINT UNSIGNED NOT NULL,
+    role ENUM('user', 'assistant', 'system') NOT NULL,
     content MEDIUMTEXT NOT NULL,
-    response_id BIGINT UNSIGNED NULL,
-    parent_response_id BIGINT UNSIGNED NULL,
+    response_id VARCHAR(100) NULL,
+    parent_response_id VARCHAR(100) NULL,
     metadata JSON NULL,
     usage JSON NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_messages_conversation_id (conversation_id),
+    KEY idx_messages_session_id (session_id),
     KEY idx_messages_response_id (response_id),
     KEY idx_messages_parent_response_id (parent_response_id),
-    CONSTRAINT fk_messages_conversation
-        FOREIGN KEY (conversation_id)
-        REFERENCES cb_conversations (id)
+    CONSTRAINT fk_messages_session
+        FOREIGN KEY (session_id)
+        REFERENCES cb_sessions (id)
         ON DELETE CASCADE
         ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
